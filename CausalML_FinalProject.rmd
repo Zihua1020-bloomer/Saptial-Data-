@@ -1,0 +1,441 @@
+---
+title: "Causal Machine Learning for Spatial Data"
+author: "Zihua Lai & Daniela Quintero Narváez"
+output: html_document
+editor_options: 
+  markdown: 
+    wrap: sentence
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Introduction
+
+This project was made as part of the 'Causal Machine Learning for Spatial data' elective course at the University of Warsaw, Poland - by second-year students of the Masters in Data Science and Business Analytics.
+Methods, materials and sources are a collection of in-class materials provided by professors: Dr. Kevin Credit (Maynooth University), Maria Kubara (University of Warsaw) and Dr. Katarzyna Kopczewska (University of Warsaw).
+Additional resources were also used and respectively cited along the publication.
+You can check all external sources in the bibliography at the end of this publication.
+
+We will apply the Exploratory Data Analysis and Machine Learning techniques in spatial data, for which we will try to assess the distribution of educational resources by looking at the average rating of instructional quality for nearby schools and their relation to population density and demographics.
+Our analysis will involve a detailed analysis of spatial data, regression forests, causal forests, and evaluation of treatment effects using data from Chicago.
+
+## Data set description
+
+We will use a data set prepared by Dr. Kevin Credit, which was part of our lecture.
+The data set describes several demographic and geographical variables of the city of Chicago involves data from different sources as Chicago Open Data Portal, Database of Road Transportation Emissions (DARTE), InfoUSA, US Census and OSMnx, for intersections on the OpenStreetMap driving street.
+
+The table below describes the variables of the data set, which was provided as well in the materials of the lecture (Lec1, slide 43):
+
+| Variable    | Description                                                               | Year      | Source                                    |
+|------------|--------------------------------|--------|-----------------|
+| SEBB2010    | Spatial Empirical Bayes estimate of new building permit density           | 2010      | Chicago Open Data Portal                  |
+| SEBB2017    | Spatial Empirical Bayes estimate of new building permit density           | 2017      | Chicago Open Data Portal                  |
+| SEBC2010    | Spatial Empirical Bayes estimate of Co2 density                           | 2010      | DARTE                                     |
+| SEBC2017    | Spatial Empirical Bayes estimate of Co2 density                           | 2017      | DARTE                                     |
+| WAS2010     | Walkable Accessibility Score                                              | 2010      | InfoUSA according to Credit et al. (2023) |
+| WAS2017     | Walkable Accessibility Score                                              | 2017      | InfoUSA according to Credit et al. (2023) |
+| POPD10      | Population density                                                        | 2010      | US Census                                 |
+| HUD10       | Housing unit density                                                      | 2010      | US Census                                 |
+| MEDAGE10    | Median age                                                                | 2010      | US Census                                 |
+| BLKP10      | \% Black non-hispanic population                                          | 2010      | US Census                                 |
+| HSPP10      | \% Hispanic population                                                    | 2010      | US Census                                 |
+| ASNP10      | \% Asian non-hispanic population                                          | 2010      | US Census                                 |
+| AVGHHS10    | Average household size                                                    | 2010      | US Census                                 |
+| FAMCP10     | \% families with children under 18                                        | 2010      | US Census                                 |
+| BACHP10     | \% population with bachelor's degree or higher                            | 2010      | US Census                                 |
+| AUTOP10     | \% commuting by auto                                                      | 2010      | US Census                                 |
+| BWLKP10     | \% commuting by bicycle and walking                                       | 2010      | US Census                                 |
+| UNEMP10     | \% labor force that is unemployed                                         | 2010      | US Census                                 |
+| MBSAP10     | \% employed in management, business, science and arts occupations         | 2010      | US Census                                 |
+| SRVP10      | \% employed in service occupations                                        | 2010      | US Census                                 |
+| PTMMP10     | \% employed in production, transportation, and metiral moving occupations | 2010      | US Census                                 |
+| MHHIN10     | Median household income                                                   | 2010      | US Census                                 |
+| PCIN10      | Per capita income                                                         | 2010      | US Census                                 |
+| OWNP10      | \% owner-occupied housing units                                           | 2010      | US Census                                 |
+| MYRMOV10    | Median year householders moved into unit                                  | 2010      | US Census                                 |
+| MRENT10     | Median gross rent                                                         | 2010      | US Census                                 |
+| MVAL10      | Median housing value                                                      | 2010      | US Census                                 |
+| MYRBLT10    | Median year structure built                                               | 2010      | US Census                                 |
+| AVGVEH10    | Average number of vehicles available per household                        | 2010      | US Census                                 |
+| CRIMER      | Number of property and violent crimes per person                          | 2010      | Chicago Open Data Portal                  |
+| ADT_mean    | Average daily traffic for nearby traffic monitors                         | 2006      | Chicago Open Data Portal                  |
+| AvgWEEK_me  | Average 'L' weekday station entries for October                           | 2012      | Chicago Open Data Portal                  |
+| boardings\_ | Average weekday bus stop boardings for October                            | 2012      | Chicago Open Data Portal                  |
+| VACANTD     | Density of violations for vacant and abandoned buildings                  | 2011      | Chicago Open Data Portal                  |
+| R_ZONEP     | \% area zoned for residential use                                         | 2012      | Chicago Open Data Portal                  |
+| INSTR_mean  | Average rating of instructional quality for nearby schools                | 2011-2012 | Chicago Open Data Portal                  |
+| INTDEN      | Intersection density on the driving network                               | 2022      | OSMnx                                     |
+
+## Exploratory Analysis
+
+For the initial exploration and analysis, the following libraries were pre-loaded: "spatialreg", "visreg", "RColorBrewer", "finalfit", "sf", "tidyverse", "tmap", "spdep", "randomForest", "grf", "xgboost", "MLmetrics", "ggplot2", "conflicted".
+
+```{r, include=FALSE, echo=FALSE}
+rm(list=ls()) #clear the global environment
+setwd("~/Library/CloudStorage/GoogleDrive-d.quinterona@student.uw.edu.pl/My Drive/UW/III-Semester/Causal ML for spatial data/W1/Practicals and Data/Chicago_BGs_Covariates")
+packages.wanted <- c("spatialreg", "visreg", "RColorBrewer", "finalfit", "sf", "tidyverse", "tmap", "spdep", "randomForest", "grf", "xgboost", "MLmetrics", "ggplot2", "conflicted")
+for (package in packages.wanted) require(package,character.only=TRUE)
+set.seed(999) #Set seed for reproducibility
+C <- st_read("Chicago_BGs_Covariates.shp")
+```
+
+```{r, echo=FALSE}
+head(C)
+```
+
+### Histograms & Correlation matrix
+
+Average rating of school quality for nearby schools from 2011- 2012 (inverse-distance weighting by school):
+
+```{r, echo=FALSE, warning=FALSE}
+hist(C$INSTR_mean, main = "")
+```
+
+We will subset the independent variables of our data and analyze their correlation:
+
+```{r, echo=FALSE, include=FALSE}
+Cor <- as.data.frame(C) %>%
+  select(POPD10,HUD10,MEDAGE10,BLKP10,HSPP10,ASNP10,AVGHHS10,FAMCP10,BACHP10,AUTOP10,BWLKP10,UNEMP10,MBSAP10,SRVP10, PTMMP10,MHHIN10,PCIN10,OWNP10,MYRMOV10,MRENT10,MVAL10,MYRBLT10,AVGVEH1,CRIMER,ADT_mean,AvgWEEK_me,boardings_, VACANTD,RM_ZONEP,INTDEN)
+```
+
+Regarding missing values: we will omit missing values as they will not provide useful insights to our model and will negatively affect the prediction results.
+
+```{r, echo=FALSE, message=FALSE, warning=FALSE}
+ff_glimpse(Cor) # missing values check
+```
+
+```{r}
+library(corrplot)
+CTable <- cor(na.omit(Cor))
+corrplot(CTable, method = "circle", type = "full", tl.cex = 0.7)
+```
+
+According to the correlation matrix, HUD10 has very high correlation with POPD10, so we could decide to remove HUD10 from the independent variable:
+
+```{r}
+Cor2 <- subset(Cor, select = -HUD10)
+```
+
+Now we will visualize our data in the map, in regards to schooling:
+
+```{r, message=FALSE}
+tmap_mode("view")
+qualityrate <- tm_shape(C) + tm_fill("INSTR_mean", style= "quantile", n = 7, palette = "-YlGnBu", title = "school quality mean", alpha=.5) + 
+  tm_borders(alpha=.3, col="white", lwd = 1)
+qualityrate
+
+```
+
+## Unsupervised Learning in Spatial data
+
+### Dimension reduction with PCA
+
+We will apply Principal Components Analysis
+
+PCA: excluding Geometric Properties for Initial Analysis: this is because PCA is sensitive to the scale of variables, and including variables with vastly different scales might result in principal components being dominated by variables with larger scales.
+
+The code below standardizes the data, applies PCA and displays the results in the table below:
+
+```{r, echo=TRUE, warning=FALSE}
+# Imputing missing values for mean
+Cor2[] <- lapply(Cor2, function(x) ifelse(is.na(x), mean(x, na.rm = TRUE), x))
+# Standardize the data
+Cor2_scaled <- scale(Cor2)
+# Apply PCA
+pca_result <- prcomp(Cor2_scaled, center = TRUE, scale. = TRUE)
+
+# Summary of PCA results
+summary(pca_result)
+```
+
+Based on the results above, we now plot a Scree plot using the ggplot2 package, which will allow us to visualize the components and their percentages of explained variances:
+
+```{r, echo=FALSE, message=FALSE}
+library(factoextra)
+# Scree plot with ggplot2
+scree_plot <- fviz_eig(pca_result, addlabels = TRUE, ylim = c(0, 25), main = "Scree Plot", ncp = 25)
+print(scree_plot)
+```
+
+```{r, message=FALSE}
+get_eigenvalue(pca_result)
+```
+
+Based on the Scree plot we can determine that the principal components are the ones corresponding to the first 5 dimensions, which explain 56.5% of the variance of our data.
+For our purposes, we want to be able to explain a higher percentage of the variance, so we will choose 10 dimensions, which represent 71.5% of the variance of our data.
+
+Now let's take a look at the contribution of each variable for the 10 selected components.
+The dashed red line serves as the threshold for determining the level of variance to preserve in the data set.
+Variables exhibiting loadings surpassing this threshold are deemed significant contributors to explaining variance within the data.
+Consequently, such variables are recommended for inclusion in subsequent analyses and variables situated below the threshold may carry lesser significance and can be considered for potential exclusion from further analysis.
+
+```{r, message=FALSE, warning=FALSE, echo=TRUE}
+# Extract variable contributions
+var_contrib <- get_pca_var(pca_result)
+
+# Plot
+contrib_plot <- fviz_contrib(pca_result, choice = "var", axes = 1:9, top = 30,
+                              col.var = "blue", col.ind = "darkred",
+                              title = "Variable Contribution to first 4 Principal                              Components",
+                              labels = list("Var", "Contrib", "Cos2", "Cos2*"),
+                              repel = TRUE) +
+                labs(x = "Principal Components", y = "Contribution (%)")
+contrib_plot
+
+```
+
+The first 13 variables are the most important, contributing the most to the explanation of the variance:
+
+-   BACHP10, INTDEN, BLK10, HSPP10, PCIN10, MHHIN10, OWNP10, MBSAP10, AVGHHS10, MEDAGE10, FAMCP10, AUTOP10, VACANTD
+
+### Clustering with K-means
+
+Spatial Clustering: The clustering of similar colors indicates that there are areas with similar school quality levels.
+Such clustering could be the result of various factors, including similar neighborhood characteristics, zoning policies, or even school districts that affect resource distribution.
+
+Based on the previous PCA results, we need to merge them into our main spatial data C:
+
+```{r, message=FALSE}
+pca_data <- st_drop_geometry(C)  # Drop geometry for combining with PCA result
+
+# Exclude non-numeric columns, including GISJOIN
+numeric_columns <- sapply(pca_data, is.numeric)
+pca_data <- pca_data[, numeric_columns]
+
+# Impute missing values with mean for each numeric column separately
+for (col in colnames(pca_data)) {
+  pca_data[, col] <- ifelse(is.na(pca_data[, col]), mean(pca_data[, col], na.rm = TRUE), pca_data[, col])
+}
+
+# Combine with PCA result
+pca_data <- cbind(pca_data, as.data.frame(pca_result$x))
+```
+
+We set 4 clusters and run k-means
+
+```{r, message=FALSE}
+k <- 4  # Specify the number of clusters
+clusters <- kmeans(pca_data[, -c(1:3)], centers = k)
+
+```
+
+Before plotting the clusters, we should include them in the spatial data to later be able to plot them in the map:
+
+```{r}
+C$cluster <- clusters$cluster
+```
+
+Now we are able to visualize the clusters in the map:
+
+```{r, message=FALSE}
+library(tmap)
+
+tm_shape(C) +
+  tm_borders() +
+  tm_fill("cluster", palette = "Set3", title = "Cluster")
+
+```
+
+## Part II : Working on a detailed analysis involving spatial data, regression forests, causal forests, and evaluation of treatment effects using data from Chicago.
+
+### Subset by different control areas
+
+```{r}
+C_CA <- as.data.frame(subset(C,(C$TREAT==1|C$CONTR_1==1))) #Neighbourhood-only control area
+C_CHI <- as.data.frame(subset(C,(C$TREAT==1|C$CONTR_2==1))) #Entire city control area
+```
+
+## Causal forest model
+
+Causal forest variables formulation - SAR
+
+```{r}
+Y <- C_CA$INSTR_mean
+X <- as.data.frame(cbind(C_CA$MHHIN10,C_CA$PCIN10, C_CA$POPD10, C_CA$BACHP10, C_CA$BLKP10,C_CA$HSPP10,C_CA$MEDAGE10,C_CA$AVGVEH1, C_CA$CRIMER, C_CA$ASNP10 ) )
+W <- C_CA$TREAT
+```
+
+These are estimates of m(X) = E[Y \| X] with no test/train split
+
+```{r}
+forest.Y <- regression_forest(X, Y)
+Y.hat_train <- predict(forest.Y)$predictions
+```
+
+```{r}
+forest.W <- regression_forest(X, W)
+W.hat_train <- predict(forest.W)$predictions
+```
+
+### Train the causal forest (weighted by propensity score)
+
+```{r}
+c.forest <- causal_forest(X, Y, W, Y.hat_train, W.hat_train)
+tau.hat <- predict(c.forest, X)$predictions
+```
+
+### Find ATE
+
+```{r}
+average_treatment_effect(c.forest, target.sample = "all") #ATE for all observations (treated and untreated)
+```
+
+### Create output shapefile with the predicted values of CATE
+
+```{r}
+output <- C_CA %>%
+  select(MHHIN10,PCIN10, POPD10, BACHP10,BLKP10,HSPP10,MEDAGE10,AVGVEH1, CRIMER, ASNP10 ,TREAT, INSTR_mean) %>%
+  dplyr::mutate(CATE_CF = tau.hat)
+```
+
+### What's the nature of the heterogeneity? What variables are useful for targeting based on treatment effects?
+
+```{r}
+imp <- c.forest %>% 
+  variable_importance() %>% 
+  as.data.frame() %>% 
+  mutate(variable = colnames(c.forest$X.orig)) 
+imp[order(imp$V1, decreasing = TRUE),]
+```
+
+### Best linear projection - statistical significance for individual CATE
+
+```{r}
+best_linear_projection(c.forest, X, debiasing.weights= W.hat_train)
+```
+
+In summary, V3, V5, V6, and V9 have statistically significant coefficients, suggesting they are important in explaining the variation in the treatment effect.
+These variables would be of most interest when considering how to target or tailor interventions based on the treatment effects.
+The negative coefficients on significant variables suggest that as these predictors increase, the treatment effect becomes more negative, which could imply that the treatment is less effective or has a more negative impact at higher levels of these variables.
+They should be POPD10(Popultion density), BLKP10(%Black Non_Hispanic population), HSPPIO(% HISPANIC population), CRIMER(Number of property and violent crimes per person)
+
+### Plot linear relationships between CATE and the 4 most important variables
+
+```{r}
+p1 <- ggplot(output, aes(x = POPD10, y = tau.hat, color=as.factor(TREAT))) +
+  scale_color_brewer(palette="Paired") +
+  geom_point(alpha = 0.4 ) +
+  geom_smooth(method = "lm", fullrange=TRUE) +
+  ylab("Treatment effect") +
+  theme_light()
+
+
+
+p2 <- ggplot(output, aes(x = BLKP10, y = tau.hat, color=as.factor(TREAT))) +
+  scale_color_brewer(palette="Paired") +
+  geom_point(alpha = 0.4 ) +
+  geom_smooth(method = "lm", fullrange=TRUE) +
+  ylab("Treatment effect") +
+  theme_light()
+
+p3 <- ggplot(output, aes(x = HSPPIO, y = tau.hat, color=as.factor(TREAT))) +
+  scale_color_brewer(palette="Paired") +
+  geom_point(alpha = 0.4 ) +
+  geom_smooth(method = "lm", fullrange=TRUE) +
+  ylab("Treatment effect") +
+  theme_light()
+
+p4 <- ggplot(output, aes(x = CRIMER, y = tau.hat, color=as.factor(TREAT))) +
+  scale_color_brewer(palette="Paired") +
+  geom_point(alpha = 0.4 ) +
+  geom_smooth(method = "lm", fullrange=TRUE) +
+  ylab("Treatment effect") +
+  theme_light()
+
+
+cowplot::plot_grid(p1, p2,p3, p4,ncol=2)
+```
+
+The regression lines for both groups slope downwards, suggesting that as population density increases, the treatment effect decreases slightly.
+The regression lines suggest that as the percentage of the Black non-Hispanic population increases, the treatment effect becomes less negative or more positive.
+The regression lines for both groups slope downwards, suggesting that as crime rate increases, the treatment effect becomes more negative.
+The plots indicate that certain demographic and crime-related variables have different associations with the treatment effect.
+For example, areas with higher proportions of Black non-Hispanic populations might respond more positively to the treatment, while areas with higher crime rates might see a more negative treatment effect.
+
+### Compute a prioritization rule based on estimated treatment effects
+
+```{r}
+priority.cate <- predict(c.forest, X)$predictions
+```
+
+### Estimate AUTOC (in this case, no held out data)
+
+```{r}
+cf.eval <- causal_forest(X, Y, W, Y.hat_train, W.hat_train) #Priority rule = units with biggest positive treatment effects (CATE) are highest-priority
+```
+
+We evaluate prioritization rules via rank-weighted average treatment effects (RATEs), which capture the extent to which individuals who are highly ranked by the prioritization rule are more responsive to treatment than the average treatment effect
+
+```{r}
+rate <- rank_average_treatment_effect(cf.eval, priority.cate, debiasing.weights = W.hat_train)
+plot(rate)
+```
+
+The targeting operator characteristic varies across different quantiles, indicating that the effectiveness of targeting is not uniform across the distribution.At lower and higher quantiles (around 0.2 and 0.8), the targeting might be less effective, as indicated by the negative values.Around the median quantiles (around 0.4 to 0.6), the targeting operator characteristic becomes less negative, suggesting a potential improvement in effectiveness.
+
+### Compute a prioritization based on baseline risk
+
+### Causal forest variables formulation - risk without treated observations (also Stage 1 of the spatial T-learner)
+
+```{r}
+train <- output[output$TREAT == 0, ]
+Yr <- as.numeric(train$INSTR_mean)
+```
+
+### Create Xr as a data frame with numeric columns
+
+```{r}
+Xr <- train[, c("MHHIN10", "PCIN10", "POPD10", "BACHP10", "BLKP10", 
+                "HSPP10", "MEDAGE10", "AVGVEH1", "CRIMER", "ASNP10")]
+```
+
+### Convert factors to numeric if needed
+
+```{r}
+Xr <- data.frame(lapply(Xr, function(x) if(is.factor(x)) as.numeric(as.character(x)) else x))
+rf.risk <- regression_forest(Xr,Yr)
+```
+
+Who should be treated based on "estimate [of] the baseline probability of the outcome in absence of any intervention, and then use this as a non-causal heuristic to prioritize individuals with a high baseline risk"
+
+```{r}
+priority.risk <- predict(rf.risk, X)$predictions
+rate.baseline <- rank_average_treatment_effect(cf.eval, priority.risk, debiasing.weights = W.hat_train)
+plot(rate.baseline)
+
+```
+
+### Test if two RATEs are equal
+
+```{r}
+rate.diff <- rank_average_treatment_effect(cf.eval, cbind(priority.cate, priority.risk) , debiasing.weights = W.hat_train)
+plot(rate.diff)
+```
+
+Interpretation Interpretation of Trends: The "priority.cate" strategy starts off with higher effectiveness at lower quantiles, then dips below zero after the 40th percentile or so, suggesting it may be less effective for higher quantiles.
+The "priority.risk" strategy appears to have a more consistent performance across quantiles but shows an overall decline in effectiveness as move to higher quantiles.
+It remains around zero or slightly above across most quantiles, suggesting its effectiveness is close to average and not particularly strong or weak.
+
+Policy Implications: The graph may suggest that the "priority.cate" strategy is more effective for individuals with lower quantile scores but becomes counterproductive for those with higher scores.
+The "priority.risk" strategy seems to have a more stable but modest effectiveness that does not vary as much with the quantiles.
+
+Conclusion: The targeting strategy represented by "priority.cate" may be more beneficial for early intervention, focusing on a segment of the population at lower quantiles of risk or need.
+The "priority.risk" strategy might be a safer, albeit less impactful, choice if a consistent approach across different population segments is desired.
+
+Construct a 95 % confidence interval: a significant result suggests that there are HTEs and that the prioritization rule is effective at stratifying the sample based on them.
+Conversely, a non-significant result suggests that either there are no HTEs or the treatment prioritization rule does not predict them effectively.
+
+```{r}
+rate.diff$estimate + data.frame(lower = -1.96 * rate.diff$std.err,
+                                upper = 1.96 * rate.diff$std.err,
+                                row.names = rate.diff$target)
+
+```
+
+## Bibliography
+
+Kubara, M. Spatiotemporal localisation patterns of technological startups: the case for recurrent neural networks in predicting urban startup clusters.
+Ann Reg Sci (2023).
+<https://doi.org/10.1007/s00168-023-01220-7>US Census
